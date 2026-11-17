@@ -15,5 +15,8 @@ generate-script:
 deploy-ssh:
 	python3 scripts/chromeos_toolkit.py deploy-ssh --host "$(IP)" --lock-updates
 
+perf:
+	python3 scripts/chromeos_toolkit.py perf --host "$(IP)"
+
 test:
 	python3 -m unittest discover -s tests -p "test_*.py" -v

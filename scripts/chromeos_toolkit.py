@@ -299,12 +299,50 @@ def deploy_over_ssh(host: str, lock_updates: bool = False) -> dict[str, Any]:
     }
 
 
+def fetch_remote_diagnostics(host: str, tail_lines: int = 30) -> dict[str, Any]:
+    cmd = f"tail -n {int(tail_lines)} /var/log/nulkast-diagnostics.jsonl 2>/dev/null"
+    ssh_res = subprocess.run(
+        ["ssh", "-o", "ConnectTimeout=5", "-o", "StrictHostKeyChecking=no", f"root@{host}", cmd],
+        capture_output=True,
+        text=True,
+        timeout=12,
+    )
+    if ssh_res.returncode != 0:
+        return {"ok": False, "host": host, "error": ssh_res.stderr.strip() or "SSH unreachable"}
+    samples: list[dict[str, Any]] = []
+    for line in ssh_res.stdout.splitlines():
+        line = line.strip()
+        if line.startswith("{"):
+            try:
+                samples.append(json.loads(line))
+            except Exception:
+                pass
+    latest = samples[-1] if samples else {}
+    max_pkg_temp = max((s.get("pkg_temp_c", 0) for s in samples), default=0)
+    max_skin_temp = max((s.get("skin_temp_c", 0) for s in samples), default=0)
+    return {
+        "ok": True,
+        "host": host,
+        "sample_count": len(samples),
+        "latest": latest,
+        "peak_pkg_temp_c": max_pkg_temp,
+        "peak_skin_temp_c": max_skin_temp,
+        "thermal_safe": max_pkg_temp < 72 and max_skin_temp < 46,
+        "samples": samples,
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="NulKast ChromeOS Custom OS & Turbo Toolkit")
-    parser.add_argument("action", choices=["classify", "catalog", "generate-script", "deploy-ssh"], help="Action")
+    parser.add_argument(
+        "action",
+        choices=["classify", "catalog", "generate-script", "deploy-ssh", "perf"],
+        help="Action",
+    )
     parser.add_argument("--board", default="google_nocturne.10984.90.0", help="ChromeOS baseboard or firmware string")
-    parser.add_argument("--host", default="", help="Target Chromebook SSH IP for deploy-ssh")
+    parser.add_argument("--host", default="", help="Target Chromebook SSH IP for deploy-ssh or perf")
     parser.add_argument("--lock-updates", action="store_true", help="Stop update-engine from overwriting custom kernel")
+    parser.add_argument("--tail", type=int, default=30, help="Number of recent JSONL samples to fetch")
     args = parser.parse_args()
 
     if args.action == "classify":
@@ -315,6 +353,10 @@ def main() -> None:
         if not args.host:
             raise SystemExit("--host <chromebook_ip> is required for deploy-ssh")
         print(json.dumps(deploy_over_ssh(args.host, lock_updates=args.lock_updates), indent=2))
+    elif args.action == "perf":
+        if not args.host:
+            raise SystemExit("--host <chromebook_ip> is required for perf")
+        print(json.dumps(fetch_remote_diagnostics(args.host, tail_lines=args.tail), indent=2))
     else:
         print(json.dumps({"supported_baseboards": BOARD_CATALOG}, indent=2))
 
