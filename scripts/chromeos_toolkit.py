@@ -187,9 +187,19 @@ for part in 2 4; do
   /usr/share/vboot/bin/make_dev_ssd.sh --set_config /tmp/kcfg --partitions $part
 done
 
-echo "[4/7] Configuring /etc/chrome_dev.conf Zero-Copy GPU, Default-App Bloat Block & NulKast-Block MV3..."
+echo "[4/7] Configuring /etc/chrome_dev.conf Zero-Copy GPU, Default-App Bloat Block & NulKast-Block + Pulse MV3..."
 cp -n /etc/chrome_dev.conf /etc/chrome_dev.conf.bak || true
-rm -rf /usr/share/chromeos-assets/aegisblock /usr/share/chromeos-assets/demo_app /opt/google/chrome/default_apps/* /usr/share/chromeos-assets/default_apps/* 2>/dev/null || true
+rm -rf /usr/share/chromeos-assets/aegisblock \
+       /usr/share/chromeos-assets/demo_app \
+       /usr/share/chromeos-assets/helpapp \
+       /usr/share/chromeos-assets/genius_app \
+       /opt/google/chrome/default_apps/* \
+       /usr/share/chromeos-assets/default_apps/* 2>/dev/null || true
+
+# Apply custom NulKast OS branding while preserving CHROMEOS_RELEASE_BOARD=nocturne
+cp -n /etc/lsb-release /etc/lsb-release.bak || true
+sed -i 's/^CHROMEOS_RELEASE_DESCRIPTION=.*/CHROMEOS_RELEASE_DESCRIPTION="NulKast OS 150.0 (Nocturne Turbo i7-8500Y)"/' /etc/lsb-release 2>/dev/null || true
+
 cat << 'EOF' > /etc/chrome_dev.conf
 # === NulKast Nocturne GPU, De-Bloat & Compositor Turbo ===
 --enable-gpu-rasterization
@@ -201,8 +211,16 @@ cat << 'EOF' > /etc/chrome_dev.conf
 --disable-logging
 --metrics-recording-only
 --enable-features=VaapiVideoDecoder,VaapiVideoEncoder,CanvasOopRasterization
---load-extension=/usr/share/chromeos-assets/nulkast-block
+--disable-features=ChromeOSWelcomeScreen,HelpApp,ReleaseNotesNotification
+--load-extension=/usr/share/chromeos-assets/nulkast-block,/usr/share/chromeos-assets/nulkast-pulse
 EOF
+
+for ext_dir in /usr/share/chromeos-assets/nulkast-block /usr/share/chromeos-assets/nulkast-pulse; do
+  if [ -d "$ext_dir" ]; then
+    chmod -R a+rX "$ext_dir"
+    chcon -R --reference=/usr/share/chromeos-assets/wallpaper "$ext_dir" 2>/dev/null || true
+  fi
+done
 
 echo "[5/7] Injecting NulKast Tracker Sinkhole into /etc/hosts (Preserving Google Play Store)..."
 cp -n /etc/hosts /etc/hosts.bak || true
@@ -242,11 +260,138 @@ done
 EOF
 chmod 755 /usr/local/bin/nulkast-arcvm-provision.sh
 
-echo "[7/7] Installing /etc/init/nulkast-turbo.conf Upstart service..."
-stop metrics_daemon 2>/dev/null || true
-if [ -f /etc/init/metrics_daemon.conf ]; then
-  mv -f /etc/init/metrics_daemon.conf /etc/init/metrics_daemon.conf.disabled
-fi
+echo "[7/7] Masking telemetry/bloat daemons & installing NulKast Turbo + 3-Tier Fanless Thermal Guard..."
+for daemon in metrics_daemon anomaly-detector memd periodic_scheduler featured ModemManager cupsd lorgnette dlp missived; do
+  stop "$daemon" 2>/dev/null || true
+  if [ -f "/etc/init/${{daemon}}.conf" ]; then
+    echo manual > "/etc/init/${{daemon}}.override" 2>/dev/null || true
+  fi
+done
+
+mkdir -p /etc/sysctl.d /var/lib/power_manager
+cat << 'EOF' > /etc/sysctl.d/99-nulkast-turbo.conf
+vm.swappiness = 15
+vm.vfs_cache_pressure = 50
+vm.page-cluster = 0
+vm.dirty_background_ratio = 5
+vm.dirty_ratio = 15
+kernel.sched_autogroup_enabled = 1
+net.core.default_qdisc = fq
+net.ipv4.tcp_congestion_control = bbr
+net.ipv4.tcp_fastopen = 3
+net.ipv4.tcp_slow_start_after_idle = 0
+EOF
+sysctl --system >/dev/null 2>&1 || true
+
+echo 1 > /var/lib/power_manager/disable_idle_suspend 2>/dev/null || true
+echo 0 > /var/lib/power_manager/suspend_to_idle 2>/dev/null || true
+restart powerd 2>/dev/null || true
+set_power_policy --ac_idle_action=do_nothing --lid_closed_action=do_nothing 2>/dev/null || true
+iw dev wlan0 set power_save off 2>/dev/null || true
+
+cat << 'EOF' > /usr/local/bin/nulkast-thermal-monitor.sh
+#!/bin/bash
+export PATH=/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:/usr/local/sbin
+LOG_FILE="/var/log/nulkast-diagnostics.jsonl"
+MAX_LINES=360
+KEEP_LINES=300
+PREV_ENERGY=0
+PREV_TS=0
+
+while true; do
+  NOW_TS=$(date +%s)
+  ISO_TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+  MAX_TEMP=38
+  for z in /sys/class/thermal/thermal_zone*/temp; do
+    if [ -r "$z" ]; then
+      raw=$(cat "$z" 2>/dev/null || echo 0)
+      c=$((raw / 1000))
+      if [ "$c" -gt "$MAX_TEMP" ] && [ "$c" -lt 115 ]; then
+        MAX_TEMP=$c
+      fi
+    fi
+  done
+
+  if [ "$MAX_TEMP" -ge 65 ]; then
+    TIER="HOT_CLAMP"
+    PL1_UW=4500000
+    PL2_UW=6000000
+    MAX_KHZ=2000000
+    EPP="balance_power"
+  elif [ "$MAX_TEMP" -ge 55 ]; then
+    TIER="WARM_STEPDOWN"
+    PL1_UW=7000000
+    PL2_UW=10000000
+    MAX_KHZ=3200000
+    EPP="balance_performance"
+  else
+    TIER="COOL_TURBO"
+    PL1_UW=9000000
+    PL2_UW=15000000
+    MAX_KHZ=4200000
+    EPP="balance_performance"
+  fi
+
+  echo "$PL1_UW" > /sys/class/powercap/intel-rapl:0/constraint_0_power_limit_uw 2>/dev/null || true
+  echo "$PL2_UW" > /sys/class/powercap/intel-rapl:0/constraint_1_power_limit_uw 2>/dev/null || true
+  for cpu in /sys/devices/system/cpu/cpu[0-3]/cpufreq; do
+    if [ -d "$cpu" ]; then
+      echo "$MAX_KHZ" > "$cpu/scaling_max_freq" 2>/dev/null || true
+      echo "$EPP" > "$cpu/energy_performance_preference" 2>/dev/null || true
+    fi
+  done
+
+  CUR_KHZ=$(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq 2>/dev/null || echo 1600000)
+  FREQ_MHZ=$((CUR_KHZ / 1000))
+  CUR_ENERGY=$(cat /sys/class/powercap/intel-rapl:0/energy_uj 2>/dev/null || echo 0)
+  WATTS="2.10"
+  if [ "$PREV_TS" -gt 0 ] && [ "$CUR_ENERGY" -gt "$PREV_ENERGY" ]; then
+    DT=$((NOW_TS - PREV_TS))
+    if [ "$DT" -gt 0 ]; then
+      DUJ=$((CUR_ENERGY - PREV_ENERGY))
+      WATTS=$(awk "BEGIN {{printf \\"%.2f\\", $DUJ / ($DT * 1000000.0)}}")
+    fi
+  fi
+  PREV_ENERGY=$CUR_ENERGY
+  PREV_TS=$NOW_TS
+
+  LOAD1=$(awk '{{print $1}}' /proc/loadavg 2>/dev/null || echo 0.25)
+  MEM_TOTAL_MB=$(awk '/MemTotal:/ {{printf "%d", $2/1024}}' /proc/meminfo)
+  MEM_AVAIL_MB=$(awk '/MemAvailable:/ {{printf "%d", $2/1024}}' /proc/meminfo)
+  MEM_USED_MB=$((MEM_TOTAL_MB - MEM_AVAIL_MB))
+  PL1_W=$((PL1_UW / 1000000))
+  PL2_W=$((PL2_UW / 1000000))
+
+  ROW="{{\\"ts\\":\\"$ISO_TS\\",\\"os_name\\":\\"NulKast OS 150 (Nocturne Turbo)\\",\\"board\\":\\"nocturne\\",\\"cpu_model\\":\\"Intel Core i7-8500Y\\",\\"temp_c\\":$MAX_TEMP,\\"pkg_temp_c\\":$MAX_TEMP,\\"freq_mhz\\":$FREQ_MHZ,\\"watts\\":$WATTS,\\"pl1_w\\":$PL1_W,\\"pl2_w\\":$PL2_W,\\"tier\\":\\"$TIER\\",\\"load_1m\\":$LOAD1,\\"mem_used_mb\\":$MEM_USED_MB,\\"mem_total_mb\\":$MEM_TOTAL_MB,\\"mem_avail_mb\\":$MEM_AVAIL_MB,\\"tcp_cc\\":\\"bbr\\",\\"swappiness\\":15,\\"debloated_daemons\\":10,\\"debloated_arcvm_pkgs\\":20,\\"sinkholed_domains\\":28}}"
+  echo "$ROW" >> "$LOG_FILE"
+
+  LINES=$(wc -l < "$LOG_FILE" 2>/dev/null || echo 0)
+  if [ "$LINES" -ge "$MAX_LINES" ]; then
+    tail -n "$KEEP_LINES" "$LOG_FILE" > "${{LOG_FILE}}.tmp" && mv -f "${{LOG_FILE}}.tmp" "$LOG_FILE"
+  fi
+
+  for ext in /usr/share/chromeos-assets/nulkast-pulse /usr/share/chromeos-assets/nulkast-block; do
+    if [ -d "$ext" ]; then
+      echo "$ROW" > "${{ext}}/telemetry.json.tmp"
+      tail -n 60 "$LOG_FILE" | awk 'BEGIN{{print "["}} {{if(NR>1)printf ","; printf "%s", $0}} END{{print "]"}}' > "${{ext}}/history.json.tmp"
+      chmod 644 "${{ext}}/telemetry.json.tmp" "${{ext}}/history.json.tmp"
+      chcon --reference=/usr/share/chromeos-assets/wallpaper "${{ext}}/telemetry.json.tmp" "${{ext}}/history.json.tmp" 2>/dev/null || true
+      mv -f "${{ext}}/telemetry.json.tmp" "${{ext}}/telemetry.json"
+      mv -f "${{ext}}/history.json.tmp" "${{ext}}/history.json"
+    fi
+  done
+
+  if [ -d /home/chronos/user/MyFiles/Downloads ]; then
+    echo "$ROW" > /home/chronos/user/MyFiles/Downloads/.nulkast-chromeos-telemetry.json.tmp
+    chown chronos:chronos /home/chronos/user/MyFiles/Downloads/.nulkast-chromeos-telemetry.json.tmp 2>/dev/null || true
+    chmod 644 /home/chronos/user/MyFiles/Downloads/.nulkast-chromeos-telemetry.json.tmp
+    mv -f /home/chronos/user/MyFiles/Downloads/.nulkast-chromeos-telemetry.json.tmp /home/chronos/user/MyFiles/Downloads/.nulkast-chromeos-telemetry.json
+  fi
+
+  sleep 10
+done
+EOF
+chmod 755 /usr/local/bin/nulkast-thermal-monitor.sh
 
 cat << 'EOF' > /etc/init/nulkast-turbo.conf
 description "NulKast Nocturne Core i7-8500Y CPU, RAPL & VM Performance Tuner"
@@ -259,24 +404,17 @@ script
   iptables -I INPUT -p tcp --dport 5555 -j ACCEPT 2>/dev/null || true
 
   echo on > /sys/devices/system/cpu/smt/control 2>/dev/null || true
-  for cpu in /sys/devices/system/cpu/cpu[0-3]/cpufreq; do
-    if [ -d "$cpu" ]; then
-      echo 1200000 > "$cpu/scaling_min_freq" 2>/dev/null || true
-      echo 4200000 > "$cpu/scaling_max_freq" 2>/dev/null || true
-      echo balance_performance > "$cpu/energy_performance_preference" 2>/dev/null || true
-    fi
-  done
-
-  if [ -w /sys/class/powercap/intel-rapl:0/constraint_0_power_limit_uw ]; then
-    echo 9500000 > /sys/class/powercap/intel-rapl:0/constraint_0_power_limit_uw 2>/dev/null || true
-  fi
-
-  sysctl -w vm.swappiness=15 2>/dev/null || true{lock_update_block}
-  /usr/local/bin/nulkast-arcvm-provision.sh &
+  sysctl --system >/dev/null 2>&1 || true{lock_update_block}
+  iw dev wlan0 set power_save off 2>/dev/null || true
+  killall nulkast-thermal-monitor.sh 2>/dev/null || true
+  /usr/local/bin/nulkast-thermal-monitor.sh >/dev/null 2>&1 &
+  /usr/local/bin/nulkast-arcvm-provision.sh >/dev/null 2>&1 &
 end script
 EOF
 
 start nulkast-turbo 2>/dev/null || true
+killall nulkast-thermal-monitor.sh 2>/dev/null || true
+nohup /usr/local/bin/nulkast-thermal-monitor.sh >/dev/null 2>&1 &
 sync
 echo "✅ NulKast Custom ChromeOS Turbo Provisioning Complete!"
 """
@@ -304,8 +442,32 @@ def deploy_over_ssh(host: str, lock_updates: bool = False) -> dict[str, Any]:
     if scp_res.returncode != 0:
         return {"ok": False, "stage": "scp", "stderr": scp_res.stderr.strip()}
 
+    # Stage NulKast-Block MV3 extension & NulKast Pulse ChromeOS extension if present
+    adblock_dir = Path("/home/user/code/extensions/adblocker/extension")
+    pulse_ext_dir = ROOT_DIR / "chromeos-pulse-ext"
+    for src_dir, remote_name in [(adblock_dir, "nulkast-block"), (pulse_ext_dir, "nulkast-pulse")]:
+        if src_dir.exists():
+            subprocess.run(
+                f"tar -czf - -C {src_dir} . | ssh -o StrictHostKeyChecking=no root@{host} "
+                f"'mkdir -p /usr/share/chromeos-assets/{remote_name} && tar -xzf - -C /usr/share/chromeos-assets/{remote_name}'",
+                shell=True,
+                capture_output=True,
+                timeout=30,
+            )
+
+    # Stage the 5 NulKast Android APKs (Wall, Audit, Scrub, Pulse, Home) for ARCVM Android 13 auto-install
+    apks_dir = Path("/home/user/code/android/data/apks")
+    if apks_dir.exists():
+        subprocess.run(
+            f"tar -czf - -C {apks_dir} . | ssh -o StrictHostKeyChecking=no root@{host} "
+            f"'mkdir -p /usr/local/nulkast-apks && tar -xzf - -C /usr/local/nulkast-apks'",
+            shell=True,
+            capture_output=True,
+            timeout=30,
+        )
+
     ssh_res = subprocess.run(
-        ["ssh", "-o", "StrictHostKeyChecking=no", f"root@{host}", "bash /tmp/harden_nocturne_chromeos.sh"],
+        ["ssh", "-o", "StrictHostKeyChecking=no", f"root@{host}", "bash /tmp/harden_nocturne_chromeos.sh && restart ui"],
         capture_output=True,
         text=True,
         timeout=60,

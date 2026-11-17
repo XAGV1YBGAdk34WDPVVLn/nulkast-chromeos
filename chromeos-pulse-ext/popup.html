@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>NulKast Pulse</title>
+  <style>
+    :root {
+      --bg: #070a12;
+      --card: #121a2b;
+      --border: #1e2b45;
+      --cyan: #00e5ff;
+      --green: #10b981;
+      --amber: #f59e0b;
+      --red: #f43f5e;
+      --text: #f8fafc;
+      --muted: #94a3b8;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      width: 390px;
+      background: var(--bg);
+      color: var(--text);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      padding: 14px;
+    }
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: #0e1422;
+      border: 1px solid var(--cyan);
+      border-radius: 12px;
+      padding: 10px 12px;
+      margin-bottom: 10px;
+    }
+    .title { font-size: 13px; font-weight: 700; color: var(--text); }
+    .sub { font-size: 10.5px; color: var(--muted); margin-top: 3px; }
+    .badge {
+      padding: 4px 8px;
+      border-radius: 999px;
+      font-size: 10.5px;
+      font-weight: 700;
+      border: 1px solid var(--green);
+      background: rgba(16, 185, 129, 0.15);
+      color: var(--green);
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+    .metric {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 9px 10px;
+    }
+    .metric-label { font-size: 10px; color: var(--muted); text-transform: uppercase; }
+    .metric-val { font-size: 16px; font-weight: 700; margin-top: 4px; color: var(--cyan); }
+    .metric-sub { font-size: 10px; color: var(--muted); margin-top: 2px; }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px;
+      margin-bottom: 10px;
+      font-size: 11px;
+      line-height: 1.5;
+    }
+    .card-title {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--green);
+      margin-bottom: 5px;
+    }
+    .btn-row { display: flex; gap: 8px; }
+    button {
+      flex: 1;
+      padding: 8px 10px;
+      border-radius: 8px;
+      border: 1px solid var(--cyan);
+      background: rgba(0, 229, 255, 0.14);
+      color: var(--cyan);
+      font-family: inherit;
+      font-size: 11.5px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    button:hover { background: rgba(0, 229, 255, 0.25); }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div>
+      <div class="title">📊 NULKAST PULSE // CHROMEOS</div>
+      <div class="sub" id="os-sub">NulKast OS 150 • Nocturne i7-8500Y</div>
+    </div>
+    <div class="badge" id="tier-badge">COOL_TURBO</div>
+  </div>
+
+  <div class="grid">
+    <div class="metric">
+      <div class="metric-label">CPU Package Temp</div>
+      <div class="metric-val" id="val-temp">-- °C</div>
+      <div class="metric-sub" id="sub-temp">Fanless Guard Active</div>
+    </div>
+    <div class="metric">
+      <div class="metric-label">Clock &amp; RAPL Power</div>
+      <div class="metric-val" id="val-freq">-- MHz</div>
+      <div class="metric-sub" id="sub-watts">RAPL: -- W</div>
+    </div>
+    <div class="metric">
+      <div class="metric-label">Physical RAM</div>
+      <div class="metric-val" id="val-ram">-- MB</div>
+      <div class="metric-sub" id="sub-ram">16 GB LPDDR3 • Swap=15</div>
+    </div>
+    <div class="metric">
+      <div class="metric-label">OS Slimming</div>
+      <div class="metric-val" id="val-debloat">31 Stripped</div>
+      <div class="metric-sub" id="sub-debloat">10 Daemons + 21 Apps</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">⚡ KERNEL &amp; COMPOSITOR OPTIMIZATIONS</div>
+    <div id="kernel-details">
+      • Kernel: mitigations=off | vmentry_l1d_flush=never<br/>
+      • Compositor: Zero-Copy GPU | Ash Blur Disabled<br/>
+      • Network: TCP BBR | NulKast-Block MV3 Active
+    </div>
+  </div>
+
+  <div class="btn-row">
+    <button id="btn-refresh">🔄 Refresh</button>
+    <button id="btn-dashboard">📈 Open Full Analytics Studio</button>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>
