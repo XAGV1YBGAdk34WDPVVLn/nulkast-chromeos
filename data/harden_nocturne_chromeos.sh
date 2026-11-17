@@ -40,6 +40,7 @@ cat << 'EOF' > /etc/chrome_dev.conf
 --enable-accelerated-video-decode
 --ash-disable-blur
 --enable-features=VaapiVideoDecoder,VaapiVideoEncoder,CanvasOopRasterization
+--load-extension=/usr/share/chromeos-assets/aegisblock
 EOF
 
 echo "[5/7] Injecting NulKast Tracker Sinkhole into /etc/hosts (Preserving Google Play Store)..."
