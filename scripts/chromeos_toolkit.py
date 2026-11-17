@@ -443,7 +443,7 @@ def deploy_over_ssh(host: str, lock_updates: bool = False) -> dict[str, Any]:
         return {"ok": False, "stage": "scp", "stderr": scp_res.stderr.strip()}
 
     # Stage NulKast-Block MV3 extension & NulKast Pulse ChromeOS extension if present
-    adblock_dir = Path("/home/user/code/extensions/adblocker/extension")
+    adblock_dir = ROOT_DIR.parent / "adblocker" / "extension"
     pulse_ext_dir = ROOT_DIR / "chromeos-pulse-ext"
     for src_dir, remote_name in [(adblock_dir, "nulkast-block"), (pulse_ext_dir, "nulkast-pulse")]:
         if src_dir.exists():
@@ -456,7 +456,7 @@ def deploy_over_ssh(host: str, lock_updates: bool = False) -> dict[str, Any]:
             )
 
     # Stage the 5 NulKast Android APKs (Wall, Audit, Scrub, Pulse, Home) for ARCVM Android 13 auto-install
-    apks_dir = Path("/home/user/code/android/data/apks")
+    apks_dir = ROOT_DIR.parent / "android" / "data" / "apks"
     if apks_dir.exists():
         subprocess.run(
             f"tar -czf - -C {apks_dir} . | ssh -o StrictHostKeyChecking=no root@{host} "
