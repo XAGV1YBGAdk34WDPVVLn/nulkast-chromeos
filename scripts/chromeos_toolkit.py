@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 NulKast ChromeOS Custom Kernel, Rootfs, GPU & ARCVM Turbo Toolkit
-(`~/code/devices/chromeos/scripts/chromeos_toolkit.py`).
+(`~/code/nulkast/chromeos/scripts/chromeos_toolkit.py`).
 
 Supports:
 1. Baseboard & firmware classification (`nocturne` Google Pixel Slate, `hatch`, `volteer`, `brya`, etc.)
