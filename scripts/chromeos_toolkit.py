@@ -98,8 +98,21 @@ ARCVM_BLOAT_PACKAGES = [
     "com.google.android.videos",
     "com.google.android.apps.youtube.music",
     "com.google.android.apps.tachyon",
+    "com.google.android.apps.books",
+    "com.google.android.apps.magazines",
+    "com.google.android.apps.podcasts",
+    "com.google.android.apps.docs",
+    "com.google.android.keep",
+    "com.google.android.youtube",
     "com.google.android.feedback",
+    "com.google.android.partnersetup",
     "com.google.android.printservice.recommendation",
+    "com.android.dreams.basic",
+    "com.android.dreams.phototable",
+    "com.android.egg",
+    "com.android.bips",
+    "com.android.bookmarkprovider",
+    "com.android.providers.partnerbookmarks",
 ]
 
 
@@ -174,17 +187,21 @@ for part in 2 4; do
   /usr/share/vboot/bin/make_dev_ssd.sh --set_config /tmp/kcfg --partitions $part
 done
 
-echo "[4/7] Configuring /etc/chrome_dev.conf Zero-Copy GPU & 3000x2000 Blur Elimination..."
+echo "[4/7] Configuring /etc/chrome_dev.conf Zero-Copy GPU, Default-App Bloat Block & NulKast-Block MV3..."
 cp -n /etc/chrome_dev.conf /etc/chrome_dev.conf.bak || true
+rm -rf /usr/share/chromeos-assets/aegisblock /usr/share/chromeos-assets/demo_app /opt/google/chrome/default_apps/* /usr/share/chromeos-assets/default_apps/* 2>/dev/null || true
 cat << 'EOF' > /etc/chrome_dev.conf
-# === NulKast Nocturne GPU & Compositor Turbo ===
+# === NulKast Nocturne GPU, De-Bloat & Compositor Turbo ===
 --enable-gpu-rasterization
 --enable-zero-copy
 --enable-oop-rasterization
 --enable-accelerated-video-decode
 --ash-disable-blur
+--disable-default-apps
+--disable-logging
+--metrics-recording-only
 --enable-features=VaapiVideoDecoder,VaapiVideoEncoder,CanvasOopRasterization
---load-extension=/usr/share/chromeos-assets/aegisblock
+--load-extension=/usr/share/chromeos-assets/nulkast-block
 EOF
 
 echo "[5/7] Injecting NulKast Tracker Sinkhole into /etc/hosts (Preserving Google Play Store)..."
@@ -211,6 +228,7 @@ for i in $(seq 1 60); do
     android-sh -c "settings put secure advertising_id 00000000-0000-0000-0000-000000000000" || true
     for pkg in {bloat_list}; do
       android-sh -c "pm disable-user --user 0 $pkg" 2>/dev/null || true
+      android-sh -c "pm uninstall -k --user 0 $pkg" 2>/dev/null || true
     done
     for apk in /usr/local/nulkast-apks/nulkast-*-release.apk; do
       if [ -f "$apk" ]; then
