@@ -1,0 +1,18 @@
+# Python & Build Artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+.env
+
+# Generated Local Data & Device Backups
+data/*.bin
+data/*.img
+data/*.rom
+data/*.log
+data/host_probe.json
+
+# IDE & Local Agent Config
+.agents/
+.vscode/
+.idea/
